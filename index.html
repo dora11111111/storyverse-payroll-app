@@ -44,6 +44,7 @@ label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mute
 <div class="row" id="subs" style="gap:16px;font-size:15px"></div>
 <div class="row" style="margin-top:10px"><span id="rates" class="row"></span><b id="usd" style="font-size:18px;margin-left:8px"></b></div>
 <p class="hint" id="sumnote"></p></section>
+<section class="card" id="ssum" hidden><div class="row" style="justify-content:space-between;margin-bottom:8px"><h3 style="margin:0">按月销售合计</h3><label style="flex-direction:row;align-items:center;gap:6px">月份筛选 <select id="mfilter" style="font-size:14px;padding:5px 8px"></select></label></div><div class="row" id="ssubs" style="gap:16px;font-size:15px"></div><div id="smonth" style="margin-top:12px;overflow-x:auto"></div><div id="scomm" style="margin-top:14px"></div></section>
 <section class="card" id="sform" hidden><div class="row" style="justify-content:space-between"><h3 style="margin:0">新增项目</h3><button class="btn pri" id="sadd" style="font-size:16px;padding:10px 22px">＋ 新增项目</button></div>
 <div class="row" style="margin-top:12px;align-items:flex-end">
 <label style="flex:1 1 120px">项目代号<input id="f_code" placeholder="如 SV-001"></label>
@@ -52,7 +53,7 @@ label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mute
 <label style="flex:0 1 90px">币种<input id="f_cur" value="USD"></label>
 <label style="flex:1 1 150px">结款日期<input id="f_date" type="date"></label></div>
 <p class="hint">填好后点「＋ 新增项目」加入下表，再在表中添加人员与提成，最后点右上角「保存并提交」。</p></section>
-<section class="card" id="ssum" hidden><h3 style="margin:0 0 8px">销售合计</h3><div class="row" id="ssubs" style="gap:16px;font-size:15px"></div><div id="smonth" style="margin-top:10px"></div><div id="scomm" style="margin-top:14px"></div></section>
+
 <section class="card" id="grid" hidden><div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 <p class="hint">保存会把 <span id="fname">payroll.csv</span> 提交到私有仓库 storyverse-hr（main 分支）。如果他人已修改，会提示重新加载。</p></section>
 </main>
@@ -96,11 +97,20 @@ $('#go').onclick=()=>{const t=$('#tok').value.trim();if(!t)return;localStorage.s
 $('#logout').onclick=()=>{localStorage.removeItem(LS);location.reload()};
 $('#add').onclick=()=>{try{const nr=header.map(()=>'');if(CUR=='sales'){const i=col(/currency|币种/i);if(i>=0)nr[i]='USD'}rows.push(nr);render();mark();const last=$('#tb').lastElementChild;last.scrollIntoView({block:'center'});const f=last.querySelector('input');if(f)f.focus()}catch(e){state('新增失败：'+e.message,'err')}};
 $('#save').onclick=save;$('#reload').onclick=()=>{if(!dirty||confirm('放弃未保存的修改？')){delete TAB[CUR];load()}};
-function scalc(){const iA=col(/amount|金额/i),iC=col(/currency|币种/i),iM=col(/month|date|月份|日期/i);const sub={},mon={};const f=n=>n.toLocaleString('zh-CN',{maximumFractionDigits:2});
-rows.forEach(r=>{if(!r.some(x=>x.trim()))return;const v=num(r[iA]);const c=((iC>=0&&r[iC])||'USD').trim().toUpperCase();sub[c]=(sub[c]||0)+v;if(iM>=0){const m=(r[iM]||'').trim().slice(0,7)||'未填月份';mon[m]=mon[m]||{};mon[m][c]=(mon[m][c]||0)+v}});
-const fmt=o=>Object.entries(o).map(([c,v])=>c+' '+f(v)).join(' · ');
-$('#ssubs').innerHTML=Object.keys(sub).length?Object.entries(sub).map(([c,v])=>`<span><span class="hint">${c} 总计</span> <b>${f(v)}</b></span>`).join(''):'<span class="hint">还没有项目，点上方「＋ 新增项目」开始</span>';
-$('#scomm').innerHTML=commHTML();$('#smonth').innerHTML=Object.keys(mon).sort().map(m=>`<div class="row"><span class="hint" style="width:90px">${m}</span><b>${fmt(mon[m])}</b></div>`).join('')}
+let MF='';function scalc(){const iA=col(/amount|金额/i),iC=col(/currency|币种/i),iM=col(/date|日期/i),iS=col(/staff|人员/i);const f=fm,cm=new Date().toISOString().slice(0,7),U=(c,v)=>c=='USD'?v:(RATES[c]>0?v/RATES[c]:0);
+const M={},T={n:0,s:{},u:0,c:0};const mk=r=>(iM>=0&&(r[iM]||'').trim().slice(0,7))||'未定日期';
+rows.forEach(r=>{if(!r.some(x=>x.trim()))return;const m=mk(r),c=((iC>=0&&r[iC])||'USD').trim().toUpperCase()||'USD',v=num(r[iA]),cmv=parseStaff(r[iS]).reduce((t,p)=>t+num(p.a)*effRate(p)/100,0);
+for(const o of[M[m]=M[m]||{n:0,s:{},u:0,c:0},T]){o.n++;o.s[c]=(o.s[c]||0)+v;o.u+=U(c,v);o.c+=U(c,cmv)}});
+const fmt=o=>Object.entries(o).map(([c,v])=>c+' '+f(v)).join(' · ')||'—';
+const keys=Object.keys(M).sort((a,b)=>a=='未定日期'?1:b=='未定日期'?-1:b.localeCompare(a));
+const opts=['',cm,...keys.filter(k=>k!=cm)];if(MF&&!opts.includes(MF))opts.push(MF);
+$('#mfilter').innerHTML=opts.map(k=>`<option value="${k}"${k==MF?' selected':''}>${k==''?'全部':k==cm?k+'（本月）':k}</option>`).join('');
+const sel=MF?(M[MF]||{n:0,s:{},u:0,c:0}):T;
+$('#ssubs').innerHTML=T.n?`<span><span class="hint">${MF||'全部'} 销售额</span> <b style="font-size:20px">${fmt(sel.s)}</b></span><span><span class="hint">≈ USD</span> <b style="font-size:20px">$${f(sel.u)}</b></span><span><span class="hint">提成</span> <b>$${f(sel.c)}</b></span><span><span class="hint">净额</span> <b>$${f(sel.u-sel.c)}</b></span><span class="hint">${sel.n} 个项目</span>`:'<span class="hint">还没有项目，点上方「＋ 新增项目」开始</span>';
+const tr=(k,o,b)=>`<tr${b?' style="font-weight:700"':''}${k==MF?' style="background:var(--accs)"':''}><td>${k}</td><td>${o.n}</td><td>${fmt(o.s)}</td><td>$${f(o.u)}</td><td>$${f(o.c)}</td><td>$${f(o.u-o.c)}</td></tr>`;
+$('#smonth').innerHTML=T.n?`<table style="min-width:0"><thead><tr><th>月份（结款）</th><th>项目数</th><th>销售额</th><th>折合 USD</th><th>提成合计</th><th>净额 USD</th></tr></thead><tbody>${keys.map(k=>tr(k,M[k])).join('')}${tr('合计',T,1)}</tbody></table>`:'';
+$('#scomm').innerHTML=commHTML();
+const kids=$('#tb').children;if(rows.length&&kids.length==rows.length)rows.forEach((r,k)=>{kids[k].hidden=!!MF&&mk(r)!=MF})}
 const DEFH={sales:['项目代号 Code','项目名称 Project name','项目金额 Amount','币种 Currency','结款日期 Payment date','人员与提成 Staff & commission','备注 Notes']};
 async function fetchTab(t){const j=await api('GET',null,t+'.csv');const x=b64dec(j.content).replace(/^\uFEFF/,'');const all=parseCSV(x).filter(r=>r.some(v=>v.trim()));let h=all[0]||[];if(!h.filter(v=>v.trim()).length)h=DEFH[t].slice();return{header:h,rows:all.slice(1),sha:j.sha,EOL:x.includes('\r\n')?'\r\n':'\n',dirty:false}}
 let depBusy=false;async function ensureDeps(){if(depBusy)return;depBusy=true;try{for(const t of['sales'])if(!TAB[t]&&CUR!=t)TAB[t]=await fetchTab(t)}catch(e){}depBusy=false;if(CUR=='payroll')calc()}
@@ -136,6 +146,7 @@ document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{const t=b.data
 $('#sadd').onclick=()=>{if(CUR!='sales')return;const c=re=>header.findIndex(h=>re.test(h));const nr=header.map(()=>'');const v={code:$('#f_code').value.trim(),name:$('#f_name').value.trim(),amt:$('#f_amt').value.trim(),cur:$('#f_cur').value.trim()||'USD',date:$('#f_date').value};
 const set=(re,x)=>{const i=c(re);if(i>=0)nr[i]=x};set(/code|代号/i,v.code);set(/project name|名称/i,v.name);set(/amount|金额/i,v.amt);set(/currency|币种/i,v.cur);set(/date|日期/i,v.date);
 rows.push(nr);render();mark();['f_code','f_name','f_amt','f_date'].forEach(i=>$('#'+i).value='');const last=$('#tb').lastElementChild;last.scrollIntoView({block:'center'});last.classList.add('dirty');state('已新增，记得点「保存并提交」')};
+$('#mfilter').onchange=()=>{MF=$('#mfilter').value;scalc()};
 window.onbeforeunload=e=>{stash();if(Object.values(TAB).some(t=>t.dirty)){e.preventDefault();return''}};
 if(localStorage.getItem(LS))load();else{$('#login').hidden=false;state('未登录')}
 </script></body></html>
