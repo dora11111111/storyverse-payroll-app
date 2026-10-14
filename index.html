@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex"><title>Storyverse 薪资 &amp; 销售</title>
+<meta name="robots" content="noindex"><title>Storyverse 薪资·销售·提成</title>
 <style>
 :root{--bg:#f6f7fb;--card:#fff;--ink:#1d2433;--mute:#6b7385;--line:#e4e7ef;--acc:#4f46e5;--accs:#eef0ff;--red:#dc2626;--grn:#059669;--r:12px}
 *{box-sizing:border-box}
@@ -29,7 +29,7 @@ nav .btn{border:0;background:transparent;color:var(--mute)}nav .btn.on{backgroun
 .chips{display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-width:180px}.chip{display:inline-flex;gap:4px;padding:2px 8px;border-radius:999px;background:var(--accs);border:1px solid #c7cbe0;font-size:12px}select{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:8px;background:#fff}
 </style></head><body>
 <header><div class="bar"><div class="brand">Storyverse 薪资表<small>Payroll · 私密数据</small></div>
-<nav id="nav" hidden style="display:flex;gap:4px;background:#eef0f5;border-radius:10px;padding:3px"><button class="btn sm on" data-tab="payroll">薪资</button><button class="btn sm" data-tab="sales">销售</button></nav><span id="state"></span><div class="sp row" id="tools" hidden>
+<nav id="nav" hidden style="display:flex;gap:4px;background:#eef0f5;border-radius:10px;padding:3px"><button class="btn sm on" data-tab="payroll">薪资</button><button class="btn sm" data-tab="sales">销售</button><button class="btn sm" data-tab="commission">提成</button></nav><span id="state"></span><div class="sp row" id="tools" hidden>
 <button class="btn" id="reload">重新加载</button><button class="btn" id="add">＋ 新增一行</button>
 <button class="btn pri" id="save">保存并提交</button><button class="btn sm" id="logout">退出</button></div></div></header>
 <main>
@@ -43,6 +43,9 @@ nav .btn{border:0;background:transparent;color:var(--mute)}nav .btn.on{backgroun
 <div class="row" style="margin-top:10px"><span id="rates" class="row"></span><b id="usd" style="font-size:18px;margin-left:8px"></b></div>
 <p class="hint" id="sumnote"></p></section>
 <section class="card" id="ssum" hidden><h3 style="margin:0 0 8px">销售合计</h3><div class="row" id="ssubs" style="gap:16px;font-size:15px"></div><div id="smonth" style="margin-top:10px"></div></section>
+<section class="card" id="csum" hidden><h3 style="margin:0 0 8px">提成合计 <span class="hint">（提成 = 归属金额 × 提成比例）</span></h3>
+<div id="cwarn" style="color:var(--red)"></div><div class="row" id="ccur" style="gap:16px;font-size:15px"></div><div id="cusd" style="margin-top:6px;font-weight:700"></div>
+<div class="row" style="align-items:flex-start;gap:32px;margin-top:10px"><div><div class="hint">按人员</div><div id="cper"></div></div><div><div class="hint">按月份</div><div id="cmon"></div></div></div></section>
 <section class="card" id="grid" hidden><div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 <p class="hint">保存会把 <span id="fname">payroll.csv</span> 提交到私有仓库 storyverse-hr（main 分支）。如果他人已修改，会提示重新加载。</p></section>
 </main>
@@ -57,20 +60,20 @@ const esc=v=>/[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
 const toCSV=()=>[header,...rows].map(r=>r.map(esc).join(',')).join(EOL)+EOL;
 const b64dec=b=>new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\n/g,'')),c=>c.charCodeAt(0)));
 function b64enc(s){const u=new TextEncoder().encode(s);let b='';for(let i=0;i<u.length;i+=0x8000)b+=String.fromCharCode(...u.subarray(i,i+0x8000));return btoa(b)}
-async function api(method,body){const r=await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${PATH}`+(method=='GET'?`?ref=${BRANCH}&t=${Date.now()}`:''),{method,cache:'no-store',headers:{Authorization:'Bearer '+localStorage.getItem(LS),Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},body:body&&JSON.stringify(body)});const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.message||r.status);e.status=r.status;throw e}return j}
+async function api(method,body,P=PATH){const r=await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${P}`+(method=='GET'?`?ref=${BRANCH}&t=${Date.now()}`:''),{method,cache:'no-store',headers:{Authorization:'Bearer '+localStorage.getItem(LS),Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},body:body&&JSON.stringify(body)});const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.message||r.status);e.status=r.status;throw e}return j}
 async function load(){state('加载中…');try{const j=await api('GET');sha=j.sha;let t=b64dec(j.content).replace(/^\uFEFF/,'');EOL=t.includes('\r\n')?'\r\n':'\n';const all=parseCSV(t).filter(r=>r.some(x=>x.trim()));header=all[0]||[];rows=all.slice(1);
 // ensure required columns exist (e.g. add Role after Name)
 if(CUR=='payroll')REQUIRED.forEach(([lab,re],k)=>{if(!header.some(h=>re.test(h))){const at=k==1?1:header.length;header.splice(at,0,lab);rows.forEach(r=>r.splice(at,0,''))}});
-if(CUR=='sales'&&!header.filter(h=>h.trim()).length)header=['项目 Project','人员 Staff','金额 Amount','币种 Currency','月份 Month (YYYY-MM)','备注 Notes'];rows.forEach(r=>{while(r.length<header.length)r.push('')});dirty=false;render();calc();$('#nav').hidden=false;$('#login').hidden=true;$('#grid').hidden=false;$('#tools').hidden=false;state(`已加载 ${rows.length} 行`,'ok')}
-catch(e){state('加载失败：'+e.message,'err');if(e.status==401||e.status==403||e.status==404){$('#login').hidden=false;$('#grid').hidden=true;$('#sum').hidden=true;$('#ssum').hidden=true;$('#nav').hidden=true;$('#tools').hidden=true}}}
+if(!header.filter(h=>h.trim()).length&&DEFH[CUR])header=DEFH[CUR].slice();rows.forEach(r=>{while(r.length<header.length)r.push('')});dirty=false;render();calc();$('#nav').hidden=false;if(CUR=='payroll')ensureDeps();$('#login').hidden=true;$('#grid').hidden=false;$('#tools').hidden=false;state(`已加载 ${rows.length} 行`,'ok')}
+catch(e){state('加载失败：'+e.message,'err');if(e.status==401||e.status==403||e.status==404){$('#login').hidden=false;$('#grid').hidden=true;$('#sum').hidden=true;$('#ssum').hidden=true;$('#csum').hidden=true;$('#nav').hidden=true;$('#tools').hidden=true}}}
 function render(){$('#th').innerHTML='<tr>'+header.map((h,i)=>`<th><input data-h="${i}" value="${h.replace(/"/g,'&quot;')}" style="font-weight:600;font-size:12px"></th>`).join('')+'<th></th></tr>';
-$('#tb').innerHTML=rows.length?'':`<tr><td colspan="${header.length+1}" class="hint" style="text-align:center;padding:24px">${CUR=='sales'?'还没有项目，点「新增一行」开始':'还没有记录，点「新增一行」开始'}</td></tr>`;rows.forEach((r,ri)=>{const tr=document.createElement('tr');header.forEach((h,ci)=>{const td=document.createElement('td');if(CUR=='sales'&&/staff|人员/i.test(h)){td.appendChild(staffCell(r,ci,tr));tr.appendChild(td);return}const el=document.createElement(/note|备注|base|基数/i.test(h)?'textarea':'input');el.value=r[ci]||'';if(/date|日期|结束/i.test(h))el.placeholder='YYYY-MM-DD';el.oninput=()=>{r[ci]=el.value;tr.className='dirty';mark()};td.appendChild(el);tr.appendChild(td)});const td=document.createElement('td');const b=document.createElement('button');b.className='btn sm danger';b.textContent='删除';b.onclick=()=>{if(confirm(`删除「${r[0]||'空行'}」？`)){rows.splice(ri,1);render();mark()}};td.appendChild(b);tr.appendChild(td);$('#tb').appendChild(tr)});
+$('#tb').innerHTML=rows.length?'':`<tr><td colspan="${header.length+1}" class="hint" style="text-align:center;padding:24px">${CUR=='sales'?'还没有项目，点「新增一行」开始':'还没有记录，点「新增一行」开始'}</td></tr>`;rows.forEach((r,ri)=>{const tr=document.createElement('tr');header.forEach((h,ci)=>{const td=document.createElement('td');if(CUR=='commission'&&/project|项目|person|人员/i.test(h)){td.appendChild(pickCell(r,ci,tr,/project|项目/i.test(h)));tr.appendChild(td);return}if(CUR=='sales'&&/staff|人员/i.test(h)){td.appendChild(staffCell(r,ci,tr));tr.appendChild(td);return}const el=document.createElement(/note|备注|base|基数/i.test(h)?'textarea':'input');el.value=r[ci]||'';if(/date|日期|结束/i.test(h))el.placeholder='YYYY-MM-DD';el.oninput=()=>{r[ci]=el.value;tr.className='dirty';mark()};td.appendChild(el);tr.appendChild(td)});const td=document.createElement('td');const b=document.createElement('button');b.className='btn sm danger';b.textContent='删除';b.onclick=()=>{if(confirm(`删除「${r[0]||'空行'}」？`)){rows.splice(ri,1);render();mark()}};td.appendChild(b);tr.appendChild(td);$('#tb').appendChild(tr)});
 document.querySelectorAll('[data-h]').forEach(el=>el.oninput=()=>{header[+el.dataset.h]=el.value;mark()})}
 function mark(){dirty=true;state('有未保存的修改');calc()}
 const RATES=JSON.parse(localStorage.getItem('sv_payroll_rates')||'{"RMB":7.1,"CNY":7.1,"GBP":0.79,"EUR":0.92}');
 const col=re=>header.findIndex(h=>re.test(h));
 const num=v=>{const n=parseFloat(String(v).replace(/[^0-9.\-]/g,''));return isNaN(n)?0:n};
-function calc(){$('#sum').hidden=CUR!='payroll';$('#ssum').hidden=CUR!='sales';$('#fname').textContent=PATH;if(CUR=='sales')return scalc();const iN=col(/name|姓名/i),iE=col(/trial end|试用期结束/i),iC=col(/currency|币种/i),iT=col(/trial wage|试用薪资|probation/i),iF=col(/full|全职/i),iNo=col(/note|备注/i);
+function calc(){$('#sum').hidden=CUR!='payroll';$('#ssum').hidden=CUR!='sales';$('#csum').hidden=CUR!='commission';if(CUR=='commission'){$('#fname').textContent=PATH;return ccalc()}$('#fname').textContent=PATH;if(CUR=='sales')return scalc();const iN=col(/name|姓名/i),iE=col(/trial end|试用期结束/i),iC=col(/currency|币种/i),iT=col(/trial wage|试用薪资|probation/i),iF=col(/full|全职/i),iNo=col(/note|备注/i);
 const today=new Date().toISOString().slice(0,10),sub={},notes=[];let nTrial=0;
 rows.forEach(r=>{if(!r.some(x=>x.trim()))return;const trial=iE>=0&&r[iE]&&r[iE]>today;if(trial)nTrial++;let v=num(trial?r[iT]:r[iF]);
 const txt=(r[iNo]||'')+' '+(trial?r[iT]:r[iF]);if(/年薪|annual|\/yr|per year|\/年/i.test(txt)){v/=12;notes.push((r[iN]||'?')+' 年薪÷12')}else if(/时薪|hourly|\/hr|per hour|\/小时/i.test(txt)){v*=173.33;notes.push((r[iN]||'?')+' 时薪×173.33')}
@@ -80,7 +83,7 @@ $('#subs').innerHTML=Object.entries(sub).map(([c,v])=>`<span><span class="hint">
 let usd=0;const need=Object.keys(sub).filter(c=>c!='USD');$('#rates').innerHTML=need.map(c=>`<label class="hint">1 USD = <input data-rate="${c}" type="number" step="0.01" value="${RATES[c]??''}" style="width:80px"> ${c}</label>`).join('');
 document.querySelectorAll('[data-rate]').forEach(el=>el.oninput=()=>{RATES[el.dataset.rate]=parseFloat(el.value);localStorage.setItem('sv_payroll_rates',JSON.stringify(RATES));upd()});
 function upd(){usd=0;let miss=false;for(const[c,v]of Object.entries(sub)){if(c=='USD')usd+=v;else if(RATES[c]>0)usd+=v/RATES[c];else miss=true}$('#usd').textContent='折合 USD 总计：$'+f(usd)+(miss?'（有币种缺汇率）':'')}upd();
-$('#sumnote').textContent=`其中 ${nTrial} 人仍在试用期（按试用薪资）。`+(notes.length?' 已换算为月薪：'+notes.join('、'):'')}
+$('#sumnote').textContent=`其中 ${nTrial} 人仍在试用期（按试用薪资）。`+commDue()+(notes.length?' 已换算为月薪：'+notes.join('、'):'')}
 async function save(){const msg=prompt('提交说明：','Update payroll via web');if(msg===null)return;$('#save').disabled=true;state('保存中…');try{const j=await api('PUT',{message:msg,content:b64enc('\uFEFF'+toCSV()),sha,branch:BRANCH});sha=j.content.sha;dirty=false;document.querySelectorAll('tr.dirty').forEach(t=>t.className='');state('✓ 已提交 '+new Date().toLocaleTimeString(),'ok')}catch(e){state(e.status==409?'保存失败：文件已被他人修改，请先复制你的修改再重新加载':'保存失败：'+e.message,'err')}$('#save').disabled=false}
 $('#go').onclick=()=>{const t=$('#tok').value.trim();if(!t)return;localStorage.setItem(LS,t);$('#tok').value='';load()};
 $('#logout').onclick=()=>{localStorage.removeItem(LS);location.reload()};
@@ -91,13 +94,36 @@ rows.forEach(r=>{if(!r.some(x=>x.trim()))return;const v=num(r[iA]);const c=((iC>
 const fmt=o=>Object.entries(o).map(([c,v])=>c+' '+f(v)).join(' · ');
 $('#ssubs').innerHTML=Object.keys(sub).length?Object.entries(sub).map(([c,v])=>`<span><span class="hint">${c} 总计</span> <b>${f(v)}</b></span>`).join(''):'<span class="hint">还没有项目，点「新增一行」开始</span>';
 $('#smonth').innerHTML=Object.keys(mon).sort().map(m=>`<div class="row"><span class="hint" style="width:90px">${m}</span><b>${fmt(mon[m])}</b></div>`).join('')}
+const DEFH={sales:['项目 Project','人员 Staff','金额 Amount','币种 Currency','月份 Month (YYYY-MM)','备注 Notes'],commission:['项目 Project','人员 Person','归属金额 Attributed amount','币种 Currency','月份 Month (YYYY-MM)','提成比例 Rate %','备注 Notes']};
+async function fetchTab(t){const j=await api('GET',null,t+'.csv');const x=b64dec(j.content).replace(/^\uFEFF/,'');const all=parseCSV(x).filter(r=>r.some(v=>v.trim()));let h=all[0]||[];if(!h.filter(v=>v.trim()).length)h=DEFH[t].slice();return{header:h,rows:all.slice(1),sha:j.sha,EOL:x.includes('\r\n')?'\r\n':'\n',dirty:false}}
+let depBusy=false;async function ensureDeps(){if(depBusy)return;depBusy=true;try{for(const t of['sales','commission'])if(!TAB[t]&&CUR!=t)TAB[t]=await fetchTab(t)}catch(e){}depBusy=false;if(CUR=='commission')render();if(CUR=='payroll'||CUR=='commission')calc()}
+const tget=t=>CUR==t?{header,rows}:TAB[t];
+const hidx=(o,re)=>o?o.header.findIndex(h=>re.test(h)):-1;
+function salesMap(){const o=tget('sales'),m={};if(!o)return m;const iP=hidx(o,/project|项目/i),iA=hidx(o,/amount|金额/i),iC=hidx(o,/currency|币种/i),iM=hidx(o,/month|date|月份|日期/i);
+o.rows.forEach(r=>{const p=(r[iP]||'').trim();if(!p)return;m[p]=m[p]||{amt:0,cur:(r[iC]||'USD').trim()||'USD',mon:(r[iM]||'').trim()};m[p].amt+=num(r[iA])});return m}
+function payRate(n){const o=tget('payroll');if(!o)return'';const iN=hidx(o,/name|姓名/i),iR=hidx(o,/commission %|提成比例/i);const r=o.rows.find(r=>(r[iN]||'').trim()==n);return r&&iR>=0?r[iR]:''}
+function pickCell(r,ci,tr,isProj){const sel=document.createElement('select');const opts=isProj?Object.keys(salesMap()):payNames();const cur=r[ci]||'';
+sel.innerHTML=`<option value="">${isProj?'选择项目':'选择人员'}</option>`+[...new Set([...opts,...(cur?[cur]:[])])].map(o=>`<option${o==cur?' selected':''}>${o.replace(/</g,'&lt;')}</option>`).join('');sel.style.minWidth='130px';
+sel.onchange=()=>{r[ci]=sel.value;const c=re=>header.findIndex(h=>re.test(h));if(isProj){const s=salesMap()[sel.value];if(s){const iA=c(/attributed|归属/i),iC=c(/currency|币种/i),iM=c(/month|月份/i);if(!r[iA]){const iP=c(/project|项目/i);const used=rows.filter(x=>x!==r&&(x[iP]||'').trim()==sel.value).reduce((t,x)=>t+num(x[iA]),0);r[iA]=String(used>0&&used<s.amt?s.amt-used:s.amt)}if(!r[iC])r[iC]=s.cur;if(!r[iM])r[iM]=s.mon}}else{const iR=c(/rate|提成比例/i);if(iR>=0&&!r[iR])r[iR]=payRate(sel.value)}render();mark()};return sel}
+function ccalc(){const c=re=>header.findIndex(h=>re.test(h));const iP=c(/project|项目/i),iN=c(/person|人员/i),iA=c(/attributed|归属/i),iC=c(/currency|币种/i),iM=c(/month|月份/i),iR=c(/rate|提成比例/i);
+const f=n=>n.toLocaleString('zh-CN',{maximumFractionDigits:2}),per={},mon={},cur={},att={},sm=salesMap();
+const add=(o,k,cc,v)=>{o[k]=o[k]||{};o[k][cc]=(o[k][cc]||0)+v};
+rows.forEach(r=>{if(!r.some(x=>x.trim()))return;const a=num(r[iA]),cc=((r[iC]||'USD').trim()||'USD').toUpperCase(),v=a*num(r[iR])/100;add(per,(r[iN]||'').trim()||'未填人员',cc,v);add(mon,(r[iM]||'').trim().slice(0,7)||'未填月份',cc,v);cur[cc]=(cur[cc]||0)+v;const p=(r[iP]||'').trim();if(p)att[p]=(att[p]||0)+a});
+const fmt=o=>Object.entries(o).map(([k,v])=>k+' '+f(v)).join(' · ');
+$('#cwarn').innerHTML=Object.entries(att).filter(([p,a])=>sm[p]&&a>sm[p].amt+1e-9).map(([p,a])=>`⚠ 项目「${p.replace(/</g,'&lt;')}」归属合计 ${f(a)} 超过销售额 ${f(sm[p].amt)}`).join('<br>');
+$('#ccur').innerHTML=Object.keys(cur).length?Object.entries(cur).map(([k,v])=>`<span><span class="hint">${k} 提成</span> <b>${f(v)}</b></span>`).join(''):'<span class="hint">还没有归属记录，点「新增一行」开始</span>';
+$('#cusd').textContent=Object.keys(cur).length?'折合 USD 总计：$'+f(toUSD(cur)):'';
+const list=o=>Object.keys(o).sort().map(k=>`<div class="row"><span style="min-width:90px">${k.replace(/</g,'&lt;')}</span><b>${fmt(o[k])}</b></div>`).join('')||'<span class="hint">—</span>';$('#cper').innerHTML=list(per);$('#cmon').innerHTML=list(mon)}
+function toUSD(o){let u=0;for(const[k,v]of Object.entries(o))u+=k=='USD'?v:(RATES[k]>0?v/RATES[k]:0);return u}
+function commDue(){const o=tget('commission');if(!o)return'';const iA=hidx(o,/attributed|归属/i),iC=hidx(o,/currency|币种/i),iM=hidx(o,/month|月份/i),iR=hidx(o,/rate|提成比例/i);const m=new Date().toISOString().slice(0,7),cur={};
+o.rows.forEach(r=>{if((r[iM]||'').slice(0,7)!=m)return;const cc=((r[iC]||'USD').trim()||'USD').toUpperCase();cur[cc]=(cur[cc]||0)+num(r[iA])*num(r[iR])/100});return ` 本月(${m})应付提成：`+(Object.keys(cur).length?Object.entries(cur).map(([k,v])=>k+' '+v.toLocaleString('zh-CN',{maximumFractionDigits:2})).join(' · ')+`（≈ $${toUSD(cur).toLocaleString('zh-CN',{maximumFractionDigits:0})}）`:'0')}
 function payNames(){const p=CUR=='payroll'?{header,rows}:TAB.payroll;if(!p)return[];const i=p.header.findIndex(h=>/name|姓名/i.test(h));return p.rows.map(r=>(r[i]||'').trim()).filter(Boolean)}
 function staffCell(r,ci,tr){const box=document.createElement('div');box.className='chips';const sel=(r[ci]||'').split(/[;；]/).map(x=>x.trim()).filter(Boolean);
 const set=a=>{r[ci]=a.join(';');tr.className='dirty';mark();box.replaceWith(staffCell(r,ci,tr))};
 sel.forEach(n=>{const c=document.createElement('span');c.className='chip';c.textContent=n;const x=document.createElement('b');x.textContent='×';x.style.cssText='cursor:pointer;color:var(--mute)';x.onclick=()=>set(sel.filter(y=>y!=n));c.appendChild(x);box.appendChild(c)});
 const dd=document.createElement('select');dd.innerHTML='<option value="">＋ 添加人员</option>'+payNames().filter(n=>!sel.includes(n)).map(n=>`<option>${n.replace(/</g,'&lt;')}</option>`).join('');dd.onchange=()=>{if(dd.value)set([...sel,dd.value])};box.appendChild(dd);return box}
 function stash(){TAB[CUR]={header,rows,sha,EOL,dirty}}
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{const t=b.dataset.tab;if(t==CUR)return;stash();CUR=t;PATH=t+'.csv';document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('on',x==b));const s=TAB[t];if(s){({header,rows,sha,EOL,dirty}=s);render();calc();state(dirty?'有未保存的修改':`已加载 ${rows.length} 行`)}else load()});
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{const t=b.dataset.tab;if(t==CUR)return;stash();CUR=t;PATH=t+'.csv';document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('on',x==b));ensureDeps();const s=TAB[t];if(s){({header,rows,sha,EOL,dirty}=s);render();calc();state(dirty?'有未保存的修改':`已加载 ${rows.length} 行`)}else load()});
 window.onbeforeunload=e=>{stash();if(Object.values(TAB).some(t=>t.dirty)){e.preventDefault();return''}};
 if(localStorage.getItem(LS))load();else{$('#login').hidden=false;state('未登录')}
 </script></body></html>
